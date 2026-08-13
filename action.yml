@@ -1,0 +1,34 @@
+name: 'JuriCode Compliance Gate'
+description: 'EU AI Act compliance check for pull requests'
+author: 'JuriCode'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  api-key:
+    description: 'Your JuriCode API key (store as a repo secret)'
+    required: true
+  api-url:
+    description: 'JuriCode backend URL'
+    required: false
+    default: 'https://juricode.fastapicloud.dev'
+  fail-on-warn:
+    description: 'Fail the check on Warn severity, not just Block'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run JuriCode compliance check
+      shell: bash
+      run: ${{ github.action_path }}/check_compliance.sh
+      env:
+        JURICODE_API_KEY: ${{ inputs.api-key }}
+        JURICODE_API_URL: ${{ inputs.api-url }}
+        FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+        GITHUB_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO_FULL_NAME: ${{ github.repository }}
