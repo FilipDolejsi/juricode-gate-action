@@ -109,7 +109,6 @@ if ! jq empty "$RESPONSE_FILE" 2>/dev/null; then
 fi
 
 SEVERITY=$(jq -r '.severity // empty' "$RESPONSE_FILE")
-CONFIDENCE=$(jq -r 'if .confidence == null then "n/a" else (.confidence | tostring) end' "$RESPONSE_FILE")
 
 case "$SEVERITY" in
   block | warn | info) : ;;
@@ -123,6 +122,11 @@ esac
 # grouped by their own per-finding severity (block first) — the top-level
 # SEVERITY is just the worst of these, so a developer needs to see every
 # finding, not only the one that happened to set it, to know what to fix.
+#
+# There's no top-level confidence: the API deliberately doesn't roll many
+# findings' confidences into one number, since that would hide how certain
+# any individual finding actually is. Each finding line below carries its
+# own confidence instead.
 # ---------------------------------------------------------------------------
 SEVERITY_UPPER=$(printf '%s' "$SEVERITY" | tr '[:lower:]' '[:upper:]')
 ARTICLE_REFS=$(jq -r 'if (.article_refs // []) | length > 0 then (.article_refs | join(", ")) else "none" end' "$RESPONSE_FILE")
@@ -133,14 +137,14 @@ echo "================ JuriCode Compliance Report ================"
 echo "Repository:   ${REPO_FULL_NAME}"
 echo "Pull Request: #${PR_NUMBER}"
 echo "Severity:     ${SEVERITY_UPPER}"
-echo "Confidence:   ${CONFIDENCE}"
 echo "Article refs: ${ARTICLE_REFS}"
 echo ""
 echo "Findings (${FINDINGS_COUNT} total):"
 
 # print_findings_section: print every finding at a given severity, numbered,
-# with its own article refs appended as the "why" behind that finding — or
-# "(none)" if nothing was reported at that severity.
+# with its own confidence and article refs appended as the "how sure" and
+# "why" behind that finding — or "(none)" if nothing was reported at that
+# severity.
 print_findings_section() {
   local sev="$1" label="$2" count
   count=$(jq --arg sev "$sev" '[(.findings // [])[] | select(.severity == $sev)] | length' "$RESPONSE_FILE")
@@ -153,6 +157,7 @@ print_findings_section() {
     [(.findings // [])[] | select(.severity == $sev)][]
     | if type == "object" then
         (.summary // .message // .description // tostring)
+        + " (confidence: " + (if .confidence == null then "n/a" else (.confidence | tostring) end) + ")"
         + (if (.article_refs // []) | length > 0
            then " [" + (.article_refs | join(", ")) + "]"
            else "" end)
