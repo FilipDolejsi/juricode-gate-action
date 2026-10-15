@@ -7,11 +7,15 @@
 # logic of its own — it only calls the hosted JuriCode backend with the
 # repo URL and PR number, interprets the response, and sets the exit
 # code. All actual EU AI Act analysis happens server-side: the backend
-# fetches the repo/PR diff itself (see orchestrator.py's start_node),
-# so this script doesn't need GitHub API access at all.
+# fetches the repo/PR diff itself (see orchestrator.py's start_node).
+# For private repositories it does so with this workflow's GITHUB_TOKEN,
+# which is forwarded as X-GitHub-Token and can read only this repository.
 #
 # Expected environment (defined in action.yml):
-#   JURICODE_API_KEY   - bearer token for the JuriCode backend
+#   JURICODE_API_KEY   - a `jc_...` CI API token, created in the JuriCode
+#                        dashboard (account menu -> CI API tokens)
+#   GITHUB_TOKEN       - optional; this workflow's token, needed only for
+#                        private repositories
 #   JURICODE_API_URL   - base URL of the JuriCode backend (no trailing /compliance-gate)
 #   FAIL_ON_WARN        - "true" or "false"
 #   PR_NUMBER            - pull request number to check
@@ -89,15 +93,28 @@ jq -n \
 # a generous budget to let the pipeline finish.
 # ---------------------------------------------------------------------------
 RESPONSE_FILE="${WORKDIR}/response.json"
+CURL_HEADERS=(
+  -H "Authorization: Bearer ${JURICODE_API_KEY}"
+  -H "Content-Type: application/json"
+)
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  CURL_HEADERS+=(-H "X-GitHub-Token: ${GITHUB_TOKEN}")
+fi
 http_status=$(curl -sS --connect-timeout 10 -m 300 --fail-with-body \
-  -H "JuriCode-API-Key: ${JURICODE_API_KEY}" \
-  -H "Content-Type: application/json" \
+  "${CURL_HEADERS[@]}" \
   --data @"${PAYLOAD_FILE}" \
   -o "$RESPONSE_FILE" -w '%{http_code}' \
   "${JURICODE_API_URL%/}/compliance-gate")
 curl_rc=$?
 if [ "$curl_rc" -ne 0 ]; then
-  die "JuriCode API request failed (HTTP ${http_status:-unknown}). This is an infrastructure/API error, not a compliance finding — verify JURICODE_API_URL and JURICODE_API_KEY, then retry."
+  # The backend's {"detail": ...} message says what went wrong (bad token,
+  # private repo on a free plan, ...). It never contains a secret.
+  detail=$(jq -r '.detail // empty | if type == "string" then . else tostring end' "$RESPONSE_FILE" 2>/dev/null)
+  case "${http_status:-}" in
+    401) hint="The JuriCode API key was rejected. Create a CI API token in the JuriCode dashboard (account menu -> CI API tokens) and store it as the JURICODE_API_KEY secret." ;;
+    *) hint="This is an infrastructure/API error, not a compliance finding — verify JURICODE_API_URL and JURICODE_API_KEY, then retry." ;;
+  esac
+  die "JuriCode API request failed (HTTP ${http_status:-unknown})${detail:+: ${detail}}. ${hint}"
 fi
 
 # ---------------------------------------------------------------------------

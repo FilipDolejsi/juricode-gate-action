@@ -8,7 +8,7 @@ branding:
 
 inputs:
   api-key:
-    description: 'Your JuriCode API key (store as a repo secret)'
+    description: 'A JuriCode CI API token (jc_...), created in the JuriCode dashboard under account menu -> CI API tokens. Store it as a repo secret.'
     required: true
   api-url:
     description: 'JuriCode backend URL'
